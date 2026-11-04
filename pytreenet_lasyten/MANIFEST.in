@@ -1,0 +1,8 @@
+include README.md LICENSE VALIDATION.md CHANGELOG.md
+include Complex_bug_impurity_solver_lasyten.py native_mpi_transport.py
+recursive-include docs *.md *.json
+recursive-include tests *.py
+recursive-include examples *.py
+prune maintenance
+global-exclude __pycache__ *.py[cod]
+recursive-include examples *.md
