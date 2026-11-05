@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from scipy.linalg import expm
 
-from fake_native import backend, fixture, baseline, data, charge_sum, Symmetric, Charged, NONE, Space
+from .fake_native import backend, fixture, baseline, data, charge_sum, Symmetric, Charged, NONE, Space
 
 HERE = Path(__file__).resolve().parent
 
@@ -168,7 +168,7 @@ def test_no_symmetry_and_numpy_paths_retain_constructor_and_fallback(native):
 @pytest.mark.parametrize('small_operator',[False,True])
 def test_multiple_physical_legs_keep_output_input_order(small_operator,native):
     from types import SimpleNamespace
-    from fake_native import random_invariant
+    from .fake_native import random_invariant
     helper,lb,ct=native
     helper.configure(max_operator_elements=4096 if small_operator else 0)
     rng=np.random.default_rng(83)

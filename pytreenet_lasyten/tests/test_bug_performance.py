@@ -3,7 +3,7 @@ import importlib
 import numpy as np
 import pytest
 from pytreenet_lasyten.util import bug_performance as perf
-from fake_native import backend, fixture, data, Charged
+from .fake_native import backend, fixture, data, Charged
 
 
 @pytest.mark.parametrize("v", range(1, 5))
@@ -131,7 +131,7 @@ def test_path_prediction_without_allocations():
 
 
 def test_lazy_copies_do_not_modify_source(monkeypatch):
-    from test_bug_regression import fixture, vector
+    from .test_bug_regression import fixture, vector
     from pytreenet_lasyten.time_evolution.bug import BUG, BUGConfig
     from pytreenet_lasyten.time_evolution.time_evolution import TimeEvoMode
 
