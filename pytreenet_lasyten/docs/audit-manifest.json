@@ -1,0 +1,88 @@
+{
+  "date": "2026-11-04",
+  "uploaded_commit": "a7a520ff454b927cdd2c52c8c8434531294eebfe",
+  "upstream_base": "5561eca14e032f1bc106042e2b9457d210fd4269",
+  "components": [
+    {
+      "component": "compact MPI wire",
+      "path": "pytreenet_lasyten/time_evolution/_mpi_block_wire.py",
+      "sha256": "408183c39adc58452148f64717be31fe2331af56b44fc37e6b529b310c1081aa",
+      "reference_match": true
+    },
+    {
+      "component": "compact MPI workers",
+      "path": "pytreenet_lasyten/time_evolution/_mpi_bug_fast.py",
+      "sha256": "bdd665f973f35013d1af0fa7d7be2ad74421b638e816796d5f59b9cb494a9577",
+      "reference_match": true
+    },
+    {
+      "component": "contraction performance",
+      "path": "pytreenet_lasyten/util/bug_performance.py",
+      "sha256": "b0026b6ba87cdb69a1ff9df464e79c669205b054e64e3d566733fb5956a3ba1d",
+      "reference_match": true
+    },
+    {
+      "component": "updated HK helper",
+      "path": "Complex_bug_impurity_solver_lasyten.py",
+      "sha256": "b161a549e53821079929ab949a1ad645758435e0f7e16e0eb5b3bcdefeccd998",
+      "reference_match": false,
+      "note": "Latest helper algorithms preserved; module docstring retains the user edit from a7a520f."
+    },
+    {
+      "component": "native rank transport",
+      "path": "native_mpi_transport.py",
+      "sha256": "28895dd255f1b366bf2746a208a16402c27d124e0c13b1161b9d480a5be4e230",
+      "reference_match": true
+    },
+    {
+      "component": "abelian_charges.py",
+      "path": "pytreenet_lasyten/util/abelian_charges.py",
+      "sha256": "46cb50b9decb8e25e914b06edbd311975450d0606303cf2630e4e161c27760f0",
+      "reference_match": true
+    },
+    {
+      "component": "u1u1_t3ns.py",
+      "path": "pytreenet_lasyten/util/u1u1_t3ns.py",
+      "sha256": "6878c0d130787b6284de86e7180bc42a7830a19938d0b178aa918f3a5e48be23",
+      "reference_match": true
+    },
+    {
+      "component": "u1u1_ttno.py",
+      "path": "pytreenet_lasyten/util/u1u1_ttno.py",
+      "sha256": "ff037615b5e053ca06978c2ea696c67467a90d652ae1af2792a60088feab2176",
+      "reference_match": true
+    },
+    {
+      "component": "u1u1_excitations.py",
+      "path": "pytreenet_lasyten/util/u1u1_excitations.py",
+      "sha256": "3df3396fc0ef470c9fe4e5401cea211463856b2fc83a40ed295b9d774599e2b0",
+      "reference_match": true
+    },
+    {
+      "component": "hk_u1_model.py",
+      "path": "pytreenet_lasyten/util/hk_u1_model.py",
+      "sha256": "d5c62712ba132f68b109d001a1f0246fbfd4b3b636f99cb11b3849cbe816ada8",
+      "reference_match": true
+    },
+    {
+      "component": "u1_t3ns.py",
+      "path": "pytreenet_lasyten/util/u1_t3ns.py",
+      "sha256": "4a0cee5bb1b2c6cbcbce64f1e85a52b4be216591a04f56ade15f969aa04c7725",
+      "reference_match": true
+    },
+    {
+      "component": "u1_ttno.py",
+      "path": "pytreenet_lasyten/util/u1_ttno.py",
+      "sha256": "15f4edd2487328ca1b1b2537619949f82893738030bdee2228cfb9aec0cd27d3",
+      "reference_match": true
+    },
+    {
+      "component": "u1_excitations.py",
+      "path": "pytreenet_lasyten/util/u1_excitations.py",
+      "sha256": "6083518a83d2db794ebae361e217cb8077882f92381d579f725a1b9e575fe130",
+      "reference_match": true
+    }
+  ],
+  "adapter_note": "lasyten_backend.py differs from the U1xU1 payload only in documentation/whitespace; algorithm definitions match.",
+  "remote_update_note": "During the audit main advanced from cdb9e5f to a7a520f; the sole module-docstring edit was retained."
+}
