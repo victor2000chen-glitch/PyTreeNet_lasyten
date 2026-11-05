@@ -1,23 +1,4 @@
-"""Native LASyTen helpers for the three-orbital HK/CTKS notebook.
-
-Ported from Complex_bug_impurity_solver(9).py. Public names and return
-conventions are retained; BUG defaults to RK23 as in that upload. Construction
-helpers are included so the notebook has no dependency on NumPy TN helper
-modules. The external utils.py is used only for the user's bath discretization
-and optional ED operators.
-
-TTNS coefficients, overlaps, one-site DMRG, BUG, DIRECT application and SVD
-remain native. NumPy/SciPy handle only small projected matrices and explicit
-dense-reference routines. DIRECT application creates enlarged virtual spaces
-before compression; it is not a hard memory cap. Projection residuals use
-compressed H|psi> states.
-
-scalar_product follows PyTreeNet's <other|self> convention. Addition uses the
-generator H, E0 and backward TTNO -H; removal uses -H, -E0 and backward TTNO +H.
-U(1) is bosonic storage here; fermion signs are the explicit model JW strings.
-
-Reference checks pass on small complex-valued systems. Native compiled LASyTen
-kernels must be exercised in the user's environment.
+"""Helper functions used to run Complex Time Krylov subspace methods using LASYTEN backend
 """
 from __future__ import annotations
 
@@ -51,6 +32,8 @@ from pytreenet_lasyten.util.u1_ttno import u1_ttno_from_hamiltonian
 from pytreenet_lasyten.util.u1_excitations import (
     create_impurity_excitations, apply_local_charge_operator,
 )
+
+HK_HELPER_API_VERSION = "2026.11.04"
 
 DMRGAlgorithm = DMRGAlgorithm_sparse
 
@@ -109,40 +92,53 @@ def Grams_schmidt(vectors, tolerance=1e-10, Keep_all=False):
     keep = eigenvalues > (0.0 if Keep_all else tolerance)
     return (basis[:, keep] / np.sqrt(eigenvalues[keep]), eigenvalues[keep])
 
-def pivoted_cholesky(vectors, tol=1e-08, svd_tol=1e-10):
-    """"Does a pivoted CHolesky decomposition of the Gram Matrix to ensure linearly independent vectors"""
-    n_krylov = len(vectors)
-    S = np.zeros((n_krylov, n_krylov), dtype=np.complex128)
-    for i in range(n_krylov):
-        for j in range(n_krylov):
-            S[i, j] = vectors[j].scalar_product(vectors[i])
-    n = np.shape(S)[0]
-    m = 0
-    d = d = np.real(np.diag(S)).copy()
-    error = np.sum(d)
+def pivoted_cholesky(vectors, tol=1e-8, svd_tol=1e-10, *,
+                     gram_matrix=None, return_gram=False):
+    """Return (L, permutation, remaining_diagonal, error, X).
+
+    X contains orthonormalizing snapshot coefficients. Only the Hermitian
+    triangle of Gram overlaps is evaluated. With return_gram=True, append S
+    as a sixth result so projection and Lehmann weights can reuse it.
+    """
+    vectors = list(vectors)
+    if not np.isfinite(tol) or tol < 0 or not np.isfinite(svd_tol) or svd_tol < 0:
+        raise ValueError('Cholesky and SVD tolerances must be finite and nonnegative.')
+    S = _krylov_gram(vectors) if gram_matrix is None else np.asarray(gram_matrix, dtype=complex)
+    n = len(vectors)
+    if n == 0 or S.shape != (n, n) or not np.all(np.isfinite(S)):
+        raise ValueError('Invalid Krylov Gram matrix.')
+    if not np.allclose(S, S.conj().T, rtol=1e-10, atol=1e-12):
+        raise ValueError('The Krylov Gram matrix must be Hermitian.')
+    d = S.diagonal().real.copy()
+    if np.any(d <= 0):
+        raise ValueError('A Krylov snapshot has zero or negative squared norm.')
     p = np.arange(n)
-    l = np.zeros_like(S)
+    factors = np.zeros_like(S)
+    error = float(d.sum())
+    m = 0
     while error > tol and m < n:
-        remaining = p[m:]
-        i = m + np.argmax(d[remaining])
-        p[m], p[i] = (p[i], p[m])
+        best = m + int(np.argmax(d[p[m:]]))
+        p[m], p[best] = p[best], p[m]
         pivot = p[m]
-        l[m][pivot] = np.sqrt(d[pivot])
-        for idx in range(m + 1, n):
-            term = 0
-            for jdx in range(m):
-                term += np.conjugate(l[jdx][p[m]]) * l[jdx][p[idx]]
-            l[m][p[idx]] = (S[p[m]][p[idx]] - term) / l[m][p[m]]
-            d[p[idx]] -= np.abs(l[m][p[idx]]) ** 2
-        error = sum([d[p[i]] for i in range(m + 1, n)])
+        if d[pivot] <= 0:
+            break
+        factors[m, pivot] = np.sqrt(d[pivot])
+        for index in p[m + 1:]:
+            correction = np.vdot(factors[:m, pivot], factors[:m, index])
+            factors[m, index] = (S[pivot, index] - correction) / factors[m, pivot]
+            d[index] = max(0.0, d[index] - abs(factors[m, index]) ** 2)
         m += 1
-    L = l[:m]
-    U_L, singular_values, Vh = np.linalg.svd(L, full_matrices=False)
+        error = float(d[p[m:]].sum())
+    if m == 0:
+        raise ValueError('Cholesky tolerance removed the entire Krylov space.')
+    L = factors[:m]
+    _, singular_values, Vh = np.linalg.svd(L, full_matrices=False)
     keep = singular_values > svd_tol * singular_values[0]
-    sigma = singular_values[keep]
-    V = Vh.conj().T[:, keep]
-    X = V @ np.diag(1.0 / sigma)
-    return (L, p, d, error, X)
+    if not np.any(keep):
+        raise ValueError('SVD tolerance removed the entire Krylov space.')
+    X = Vh.conj().T[:, keep] / singular_values[keep]
+    result = (L, p, d, error, X)
+    return result + (S,) if return_gram else result
 
 def krylov_projection(H, X, vectors, tol=0.001, Keep_all=False):
     """Takes a Hamiltonian and projects it into an orthonormalised Krylov subspace"""
@@ -183,67 +179,116 @@ def krylov_projection(H, X, vectors, tol=0.001, Keep_all=False):
         print(f'{k:2d}: E = {energy: .10f}, residual = {residuals[k]:.3e}, relative = {relative_residuals[k]:.3e}')
     return (np.real_if_close(energies), Q, ritz_vectors, residuals, relative_residuals)
 
-def krylov_projection_TTN(H, X, vectors, tol=0.001, Keep_all=False, application_svd_params=None):
-    """Project the TTNO Hamiltonian into the Krylov subspace.
+def krylov_projection_TTN(H, X, vectors, tol=1e-3, Keep_all=False,
+                          application_svd_params=None, *, gram_matrix=None,
+                          full_residuals=True, return_diagnostics=False):
+    """Project the physical Hermitian TTNO using native H applications.
 
-    H|psi> uses native DIRECT application followed by native block-SVD
-    compression. application_svd_params controls this compression independently
-    of BUG's state bond dimension. The defaults are rank 100, relative
-    tolerance 1e-10 and absolute singular-value cutoff 1e-12, without
-    renormalization. Converge these settings for energies and residuals;
-    residuals below are evaluated using the compressed H|psi> states.
+    The five-result legacy interface is preserved. Full residuals retain the
+    compressed H|v> states and are residuals of that compressed action, not
+    certified exact-H errors. Set full_residuals=False with Keep_all=True to
+    release each H|v> after its projected column; residual arrays then hold NaN.
     """
+    vectors = list(vectors)
+    X = np.asarray(X, dtype=np.complex128)
     m = len(vectors)
-    r = X.shape[1]
-    assert X.shape[0] == m
+    if m == 0 or X.ndim != 2 or X.shape[0] != m or X.shape[1] == 0:
+        raise ValueError('X must have shape (number_of_snapshots, positive_rank).')
+    if not np.all(np.isfinite(X)) or not np.isfinite(tol) or tol < 0:
+        raise ValueError('Nonfinite coefficients or invalid residual tolerance.')
+    if not full_residuals and not Keep_all:
+        raise ValueError('Residual filtering requires full_residuals=True.')
+    S = _krylov_gram(vectors) if gram_matrix is None else np.asarray(gram_matrix, dtype=complex)
+    if S.shape != (m, m) or not np.all(np.isfinite(S)):
+        raise ValueError('Invalid cached Krylov Gram matrix.')
+    white_error = np.linalg.norm(X.conj().T @ S @ X - np.eye(X.shape[1]))
+    if not np.isfinite(white_error) or white_error > 1e-4:
+        raise ValueError('The Krylov basis is not orthonormal; increase its cutoff.')
     if application_svd_params is None:
-        application_svd_params = SVDParameters(max_bond_dim=100, rel_tol=1e-10, total_tol=1e-12, renorm=False)
-    H_vectors = [apply_and_compress_native(vectors[p], H, application_svd_params) for p in range(m)]
-    S = np.zeros((m, m), dtype=np.complex128)
-    H_eff = np.zeros((m, m), dtype=np.complex128)
-    K = np.zeros((m, m), dtype=np.complex128)
-    for n in range(m):
-        for p in range(m):
-            S[n, p] = vectors[p].scalar_product(vectors[n])
-            H_eff[n, p] = vectors[p].scalar_product(H_vectors[n])
-            K[n, p] = H_vectors[p].scalar_product(H_vectors[n])
-    H_eff_orthog = X.conj().T @ H_eff @ X
-    energies, Q = np.linalg.eigh(H_eff_orthog)
+        application_svd_params = SVDParameters(
+            max_bond_dim=100, rel_tol=1e-10, total_tol=1e-12, renorm=False,
+        )
+    projected = np.empty((m, m), dtype=complex)
+    K = np.empty_like(projected) if full_residuals else None
+    h_vectors = []
+    for j, vector in enumerate(vectors):
+        h_vector = apply_and_compress_native(vector, H, application_svd_params)
+        for i, bra in enumerate(vectors):
+            projected[i, j] = _krylov_overlap(bra, h_vector)
+        if full_residuals:
+            h_vectors.append(h_vector)
+            for i in range(j + 1):
+                value = _krylov_overlap(h_vectors[i], h_vector)
+                K[i, j], K[j, i] = value, np.conjugate(value)
+        del h_vector
+    if not np.all(np.isfinite(projected)) or (K is not None and not np.all(np.isfinite(K))):
+        raise ValueError('Nonfinite projected Hamiltonian contractions.')
+    raw = X.conj().T @ projected @ X
+    defect = float(np.linalg.norm(raw - raw.conj().T) / max(np.linalg.norm(raw), 1e-30))
+    energies, Q = np.linalg.eigh((raw + raw.conj().T) / 2)
     coefficients = X @ Q
-    residuals = np.zeros(r)
-    for i in range(r):
-        E = energies[i]
-        c = coefficients[:, i]
-        norm_phi = np.vdot(c, S @ c).real
-        H_phi = np.vdot(c, H_eff @ c)
-        H2_phi = np.vdot(c, K @ c).real
-        residual_squared = H2_phi - 2.0 * E * H_phi.real + E ** 2 * norm_phi
-        residuals[i] = np.sqrt(np.abs(residual_squared))
-    relative_residuals = residuals / np.maximum(np.abs(energies), 1.0)
+    residuals = np.full(energies.shape, np.nan)
+    if full_residuals:
+        norms = np.einsum('ik,ij,jk->k', coefficients.conj(), S, coefficients).real
+        h_mean = np.einsum('ik,ij,jk->k', coefficients.conj(), projected, coefficients).real
+        h_norm = np.einsum('ik,ij,jk->k', coefficients.conj(), K, coefficients).real
+        if np.any(norms <= 0):
+            raise ValueError('A Ritz vector has nonpositive norm.')
+        r2 = h_norm - 2 * energies * h_mean + energies ** 2 * norms
+        scale = np.maximum(1.0, abs(h_norm) + 2 * abs(energies * h_mean) + energies ** 2 * abs(norms))
+        if np.any(r2 < -1e-8 * scale):
+            raise ValueError('Negative squared Ritz residual exceeds roundoff.')
+        residuals = np.sqrt(np.maximum(r2, 0) / norms)
+    relative_residuals = residuals / np.maximum(1.0, abs(energies))
     if not Keep_all:
         keep = residuals <= tol
-        energies = energies[keep]
-        Q = Q[:, keep]
-        coefficients = coefficients[:, keep]
-        residuals = residuals[keep]
-        relative_residuals = relative_residuals[keep]
+        energies, Q, coefficients = energies[keep], Q[:, keep], coefficients[:, keep]
+        residuals, relative_residuals = residuals[keep], relative_residuals[keep]
     print('Ritz values and residuals:')
-    for k, energy in enumerate(energies):
-        print(f'{k:2d}: E = {energy: .10f}, residual = {residuals[k]:.3e}, relative = {relative_residuals[k]:.3e}')
-    return (energies, Q, coefficients, residuals, relative_residuals)
+    for index, energy in enumerate(energies):
+        print(f'{index:2d}: E = {energy: .10f}, residual = {residuals[index]:.3e}, relative = {relative_residuals[index]:.3e}')
+    result = (energies, Q, coefficients, residuals, relative_residuals)
+    if return_diagnostics:
+        return result + (dict(gram_matrix=S, projected_hamiltonian=projected,
+                             hamiltonian_norm_matrix=K,
+                             whitening_residual=float(white_error),
+                             hermiticity_defect=defect),)
+    return result
 
-def Complex_time_evolution(state, TTNO, time_step_size, final_time, max_bond_dim, operators, M,time_evo_mode=TimeEvoMode.RK45):
+def Complex_time_evolution(state, TTNO, time_step_size, final_time,
+                           max_bond_dim, operators, M,
+                           time_evo_mode=TimeEvoMode.RK45, *,
+                           rel_tol=1e-5, abs_tol=1e-5, solver_options=None):
+    """Collect t=0 plus M snapshots separated by final_time.
+
+    One BUG integrator is retained across all samples. RK45 is now accepted
+    explicitly; its default and positional argument match the uploaded helper.
+    BUG truncation defaults and M+1 snapshot semantics are unchanged.
+    """
+    if isinstance(M, (bool, np.bool_)) or not isinstance(M, (int, np.integer)) or M < 0:
+        raise ValueError('M must be a nonnegative integer number of intervals.')
+    if not np.isfinite(time_step_size) or time_step_size <= 0 or not np.isfinite(final_time) or final_time <= 0:
+        raise ValueError('time_step_size and final_time must be finite and positive.')
     steps_per_sample = round(final_time / time_step_size)
     if steps_per_sample < 1 or not np.isclose(steps_per_sample * time_step_size, final_time):
-        raise ValueError('final_time must be an integer multiple of time_step_size')
-    config = BUGConfig(max_bond_dim=max_bond_dim, rel_tol=1e-05, total_tol=1e-05, time_evo_mode=time_evo_mode, record_max_bdim=False)
-    bug = BUG(initial_state=state, hamiltonian=TTNO, time_step_size=time_step_size, final_time=M * final_time, operators=operators, config=config)
-    krylov_states = [deepcopy(bug.state)]
+        raise ValueError('final_time must be an integer multiple of time_step_size.')
+    if M == 0:
+        return [deepcopy(state)]
+    config = BUGConfig(max_bond_dim=max_bond_dim, rel_tol=rel_tol,
+                       total_tol=abs_tol, time_evo_mode=time_evo_mode,
+                       record_max_bdim=False)
+    options = {'rtol': 1e-8, 'atol': 1e-10}
+    if solver_options is not None:
+        options.update(dict(solver_options))
+    bug = BUG(initial_state=state, hamiltonian=TTNO,
+              time_step_size=time_step_size, final_time=M * final_time,
+              operators=operators, config=config, solver_options=options)
+    snapshots = [deepcopy(bug.state)]
     for step in range(1, M * steps_per_sample + 1):
         bug.run_one_time_step()
         if step % steps_per_sample == 0:
-            krylov_states.append(deepcopy(bug.state))
-    return krylov_states
+            snapshots.append(deepcopy(bug.state))
+    return snapshots
 
 def Gram_schmidt_TTN(states, tolerance=1e-10, Keep_all=False):
     """A Gram Schmidt orthonormalisation without TTNS contraction"""
@@ -394,17 +439,43 @@ def Greens_function_lehman_TTN(E, Ritz_coefficients, Krylo_vectors, psi_0, E_0, 
     removal_weight = np.abs(ground.conj() @ matrix.conj().T @ coefficients) ** 2
     return np.sum(creation_weight / (z + E_0 - energies) + removal_weight / (z - E_0 + energies), axis=-1)
 
-def lehmann_sector_TTN(E, Ritz_coefficients, Krylov_vectors, psi_exc, E_0, eta, omega, sign):
-    """sign=+1: addition; sign=-1: removal."""
+def lehmann_sector_TTN(E, Ritz_coefficients, Krylov_vectors, psi_exc,
+                       E_0, eta, omega, sign, *, overlaps=None,
+                       excitation_norm=None):
+    """Normalized-sector response; multiply by physical excitation Z once.
+
+    overlaps may be the cached Gram row <psi_exc|snapshot_j>, and
+    excitation_norm may be its diagonal entry when snapshot zero is psi_exc.
+    """
     E = np.asarray(E)
-    B = np.asarray(Ritz_coefficients)
+    B = np.asarray(Ritz_coefficients, dtype=complex)
+    vectors = list(Krylov_vectors)
+    if E.ndim != 1 or E.size == 0 or B.shape != (len(vectors), E.size):
+        raise ValueError('Ritz coefficients must have shape (snapshots, nonzero_poles).')
+    if sign not in (-1, 1) or not np.isfinite(eta) or eta <= 0:
+        raise ValueError('sign must be +/-1 and eta must be finite and positive.')
+    if not np.all(np.isfinite(E)) or not np.all(np.isfinite(B)):
+        raise ValueError('Nonfinite Ritz poles or coefficients.')
+    if np.max(abs(E.imag)) > 1e-10 * max(1.0, float(np.max(abs(E.real)))):
+        raise ValueError('Physical Lehmann poles must be real.')
+    E = E.real
+    E_0 = complex(E_0)
+    if not np.isfinite(E_0) or abs(E_0.imag) > 1e-10 * max(1.0, abs(E_0.real)):
+        raise ValueError('The physical ground-state energy must be real and finite.')
+    if overlaps is None:
+        overlaps = np.array([_krylov_overlap(psi_exc, v) for v in vectors])
+    overlaps = np.asarray(overlaps, dtype=complex)
+    if overlaps.shape != (len(vectors),) or not np.all(np.isfinite(overlaps)):
+        raise ValueError('Invalid excitation-snapshot overlaps.')
+    norm = _krylov_overlap(psi_exc, psi_exc) if excitation_norm is None else complex(excitation_norm)
+    if not np.isfinite(norm) or norm.real <= 0 or abs(norm.imag) > 1e-10 * max(1.0, norm.real):
+        raise ValueError('The excitation must have positive finite norm.')
     order = np.argsort(E)
-    E, B = (E[order], B[:, order])
-    overlaps = np.array([v.scalar_product(psi_exc) for v in Krylov_vectors], dtype=complex)
-    weights = np.abs(overlaps @ B) ** 2
+    E, B = E[order], B[:, order]
+    weights = abs(overlaps @ B) ** 2 / norm.real
     z = np.asarray(omega)[..., None] + 1j * eta
-    G = np.sum(weights / (z - sign * (E - E_0)), axis=-1)
-    return (G, weights.sum())
+    G = np.sum(weights / (z - sign * (E - E_0.real)), axis=-1)
+    return G, float(weights.sum())
 
 def _bug_step(state, duration, TTNO, operators, max_bond_dim, time_step_size=0.1, rel_tol=1e-12, abs_tol=1e-12):
     """Evolve a TTNS by exp(-i H duration) for duration >= 0."""
@@ -966,3 +1037,35 @@ __all__ = ['BUG_time_evolution', 'BUG_time_evolution_fixed', 'imaginary_time_evo
 
 # Public construction check used by the notebook model cell.
 __all__ += ["check_u1_state"]
+
+def _krylov_overlap(bra, ket):
+    """Return <bra|ket>; PyTreeNet conjugates scalar_product's second argument."""
+    return complex(ket.scalar_product(bra, use_orthogonal_center=False))
+
+def _krylov_gram(vectors):
+    m = len(vectors)
+    if m == 0:
+        raise ValueError('Krylov vectors must be nonempty.')
+    S = np.empty((m, m), dtype=np.complex128)
+    for j in range(m):
+        for i in range(j + 1):
+            value = _krylov_overlap(vectors[i], vectors[j])
+            if i == j:
+                if value.real <= 0 or abs(value.imag) > 1e-10 * max(1.0, abs(value.real)):
+                    raise ValueError('A Krylov snapshot has an invalid norm.')
+                value = value.real
+            S[i, j], S[j, i] = value, np.conjugate(value)
+    if not np.all(np.isfinite(S)):
+        raise ValueError('Nonfinite Krylov Gram matrix.')
+    return S
+
+def broadcast_ttn(network, comm, *, root=0, network_class=None):
+    """Broadcast a native TTNS as sparse blocks, never a pickled LASyTen object."""
+    from native_mpi_transport import _pack_network, _unpack_network
+    rank = comm.Get_rank()
+    record = _pack_network(network) if rank == root else None
+    record = comm.bcast(record, root=root)
+    if rank == root:
+        return network
+    cls = TreeTensorNetworkState if network_class is None else network_class
+    return _unpack_network(cls, record)
