@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pytreenet-lasyten"
+version = "0.1.1"
+description = "PyTreeNet with native LASyTen U(1) BUG and one-site DMRG kernels"
+readme = "README.md"
+license = "EUPL-1.2"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = ["numpy>=2.0", "scipy>=1.15", "tqdm>=4.65", "h5py>=3.10"]
+
+[project.optional-dependencies]
+mpi = ["mpi4py>=4", "h5py>=3.13"]
+test = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.9", "build>=1.2"]
+notebook = ["ipykernel", "matplotlib", "pandas", "psutil"]
+sim-utils = ["requests>=2.32"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pytreenet_lasyten", "pytreenet_lasyten.*"]
+exclude = ["pytreenet_lasyten.pytreenet_lasyten*"]
+namespaces = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["native: requires the compiled LASyTen and hdf5_io dependencies",
+           "mpi: requires mpi4py and an MPI runtime"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
