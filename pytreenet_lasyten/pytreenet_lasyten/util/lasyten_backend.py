@@ -5,7 +5,7 @@ That LasyTen revision requires Python >= 3.14 and a built ``lasyten._core``.
 This file itself uses Python 3.12-compatible syntax and NumPy for metadata.
 
 Install this file as ``pytreenet_lasyten/util/lasyten_backend.py`` (or import it directly).
-Replace numerical operations in PyTreeNet selectively, for example::
+Replace numerical operations in PyTreeNet selectively, for example:
 
     from pytreenet_lasyten.util import lasyten_backend as cb
     result = cb.tensordot(a, b, axes=([1], [0]))
@@ -15,8 +15,7 @@ Replace numerical operations in PyTreeNet selectively, for example::
 
 The SVD spectrum is a LasyTenSpectrum, NOT a sorted ndarray. Use scale_axis
 instead of np.diag(s), and use LasyTen masks instead of slicing bond indices.
-Only the small 1-D spectrum is copied to CPU for PyTreeNet-compatible cutoff
-selection. Tensor contractions and decompositions remain in LasyTen.
+
 
 LasyTenArray supplies shape/ndim, transpose/conj/copy/astype and scalar algebra
 for Node and TensorDict. Its native tensor is kept with all *public* legs in
@@ -26,20 +25,7 @@ Never modify ``native`` in place behind the wrapper.
 
 Initial scope: ordinary (bosonic) NoSymmetry and U(1). Explicit charge spaces
 are required for U(1); from_numpy does not infer virtual charges. ChargedTensor
-is supported for a fixed nonzero total charge. Fermionic/anyonic conventions,
-arbitrary reshape/slicing, zero-padded KEEP/FULL QR, randomized SVD, and an
-automatic migration of all PyTreeNet/BUG/SciPy code are outside this version.
-Non-Hermitian Krylov evolution remains disabled: the original Cyten adapter
-revision failed an independent ArnoldiEvolution accuracy comparison. That
-path has not been revalidated for this LASyTen revision.
-Unsupported operations fail rather than silently densifying. In particular,
-flatten() does not return a SciPy-compatible dense vector. Native adaptive BUG
-uses the tensor-valued RK23/RK45 implementation in time_evolution.py; native
-one-site DMRG uses the tensor-valued Davidson implementation in dmrg_utils.py.
-
-No monkey-patching of NumPy or PyTreeNet is performed. ``network_to_lasyten``
-converts storage, but does not make unported np.* calls backend compatible.
-``to_numpy`` and ``network_to_numpy`` are the explicit dense boundaries.
+is supported for a fixed nonzero total charge.
 """
 
 from __future__ import annotations
