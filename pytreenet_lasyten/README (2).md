@@ -6,7 +6,8 @@ backend. It is installed separately from the NumPy-based `pytreenet` package.
 
 - **Symmetries:** `U(1)` conserves total particle number; `U(1) × U(1)` conserves the up- and down-spin particle numbers separately.
 - **Tensor operations:** construct tree tensor network states and operators, compute overlaps, apply operators directly, and create particle and hole excitations.
-- **Algorithms:** sparse one-site DMRG and adaptive BUG time evolution, with optional MPI subtree workers. Native two-site DMRG and one-site subspace expansion are outside the scope of this checkout.
+- **Algorithms:** sparse one-site and two-site DMRG and adaptive BUG time evolution, with optional MPI subtree workers.
+- **Complex Time impurity solver:** Helper functions for the Complex Time Krylov subspace (CTKS) expansion such as Krylov vector generation and projection are found in Complex_bug_impurity_solver_lasyten.py
 
 ## Install
 
