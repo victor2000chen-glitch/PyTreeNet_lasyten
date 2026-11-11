@@ -2,8 +2,8 @@
 
 U1 stores one additive particle-number charge. U1xU1 stores `(N_up,N_down)` and
 requires conservation of each spin population. The HK model and spin-conserving
-bath coupling used here satisfy that requirement. Storage is bosonic; JW signs
-are supplied by the symbolic model.
+bath coupling used here satisfy that requirement. Storage is bosonic with fermionic statistics
+included via JW strings. Symmetric tensor operations and Lasyten adaptor can be found in util.lasyten_backend
 
 Construction lives in `util.hk_u1_model`. `abelian_charges.fixed_charge` returns
 the full charge tuple. `check_native_u1` checks every component and returns the
